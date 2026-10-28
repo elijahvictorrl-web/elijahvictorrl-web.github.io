@@ -310,9 +310,9 @@
     "  vec4 clip = projectionMatrix * mv;",
     "  vec2 ndcXY = clip.xy / clip.w;",
     "  vec2 dp = (ndcXY - uPointer) * vec2(uAspect, 1.0);",
-    "  float dent = exp(-dot(dp, dp) * 9.0) * uPress;",
-    "  mv.z += dent * .55;",
-    "  vHit = dent * 1.2;",
+    "  float dent = exp(-dot(dp, dp) * 6.5) * uPress;",
+    "  mv.z += dent * .7;",
+    "  vHit = dent * 1.4;",
     "  gl_Position = projectionMatrix * mv;",
     "}"
   ].join("\n");
@@ -380,18 +380,22 @@
   /* ---------- Pointer: parallax + touch ripple ---------- */
   var ndc = new THREE.Vector2();
   var parX = 0, parY = 0, parTX = 0, parTY = 0;
-  var ptrX = 0, ptrY = 0, ptrTX = 0, ptrTY = 0, pressSmooth = 0, lastEventT = -10;
-  function onPoint(x, y){
+  var ptrX = 0, ptrY = 0, ptrTX = 0, ptrTY = 0, pressSmooth = 0, pressTarget = 0, lastEventT = -10, lastType = "mouse";
+  function onPoint(x, y, type){
     ndc.x = (x / window.innerWidth) * 2 - 1;
     ndc.y = -(y / window.innerHeight) * 2 + 1;
     parTX = ndc.x; parTY = ndc.y;
     ptrTX = ndc.x; ptrTY = ndc.y;
     lastEventT = perfNow();
+    if (type) lastType = type;
+    pressTarget = 1;
   }
-  window.addEventListener("pointermove", function(e){ onPoint(e.clientX, e.clientY); }, {passive: true});
-  window.addEventListener("pointerdown", function(e){ onPoint(e.clientX, e.clientY); }, {passive: true});
-  window.addEventListener("touchstart", function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY); }, {passive: true});
-  window.addEventListener("touchmove",  function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY); }, {passive: true});
+  window.addEventListener("pointermove", function(e){ onPoint(e.clientX, e.clientY, e.pointerType || "mouse"); }, {passive: true});
+  window.addEventListener("pointerdown", function(e){ onPoint(e.clientX, e.clientY, e.pointerType || "mouse"); }, {passive: true});
+  window.addEventListener("touchstart", function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY, "touch"); }, {passive: true});
+  window.addEventListener("touchmove",  function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY, "touch"); }, {passive: true});
+  document.addEventListener("pointerleave", function(){ pressTarget = 0; });
+  window.addEventListener("touchend", function(){ lastEventT = perfNow(); }, {passive: true});
 
   /* ---------- Depth parallax on content layers ---------- */
   var layers = Array.prototype.slice.call(document.querySelectorAll(".depth-slow"));
@@ -440,7 +444,8 @@
     uniforms.uEnergy.value = s.energy;
     ptrX += (ptrTX - ptrX) * .30; ptrY += (ptrTY - ptrY) * .30;
     uniforms.uPointer.value.set(ptrX, ptrY);
-    pressSmooth += (((t - lastEventT) < 2.5 ? 1 : 0) - pressSmooth) * .07;
+    if (lastType === "touch" && (t - lastEventT) > 3.5) pressTarget = 0;
+    pressSmooth += (pressTarget - pressSmooth) * .07;
     uniforms.uPress.value = pressSmooth;
 
     motes.rotation.y = t * .012;
