@@ -11,7 +11,7 @@
 <style>
   :root{
     --bg:#F7F5F0; --amber:#E08A00; --teal:#2F7E88; --slate:#2E3542;
-    --glass:rgba(247,245,240,.55); --glass-line:rgba(46,53,66,.14);
+    --glass:rgba(247,245,240,.78); --glass-line:rgba(46,53,66,.14);
   }
   *{margin:0;padding:0;box-sizing:border-box}
   html{scroll-behavior:smooth}
@@ -74,7 +74,7 @@
     animation:cue 2.2s ease-in-out infinite; transform-origin:left}
   @keyframes cue{0%,100%{transform:scaleX(.4); opacity:.4}50%{transform:scaleX(1); opacity:1}}
   .depth-slow{will-change:transform}
-  .reveal{opacity:0; transform:translateY(34px); transition:opacity .9s ease, transform .9s cubic-bezier(.22,.8,.28,1)}
+  .reveal{opacity:0; transform:translateY(34px); transition:opacity .65s ease, transform .65s cubic-bezier(.22,.8,.28,1)}
   .reveal.in{opacity:1; transform:translateY(0)}
   .reveal.d1{transition-delay:.08s}.reveal.d2{transition-delay:.16s}.reveal.d3{transition-delay:.24s}
   .cards{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:44px; max-width:1120px}
@@ -93,7 +93,7 @@
   .step p{margin-top:6px; font-size:16px; line-height:1.55; color:rgba(46,53,66,.84); max-width:32em}
   .offer-panel{
     max-width:880px; border-radius:28px; padding:clamp(30px,5vw,56px);
-    background:rgba(247,245,240,.38); border:1px solid rgba(255,255,255,.5);
+    background:rgba(247,245,240,.58); border:1px solid rgba(255,255,255,.5);
     backdrop-filter:blur(16px) saturate(1.2); -webkit-backdrop-filter:blur(16px) saturate(1.2);
     box-shadow:0 30px 80px rgba(46,53,66,.14);
   }
@@ -254,8 +254,8 @@
     uTime:      {value: 0},
     uMix:       {value: 0},                                   // palette balance, driven by scroll state
     uEnergy:    {value: .85},                                 // deformation energy, driven by scroll state
-    uHit:       {value: new THREE.Vector3(0, 0, 10)},        // last touch point on the form
-    uHitAge:    {value: 99},                                  // seconds since touch; ripple fades with age
+    uHits:      {value: [new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10)]},
+    uAges:      {value: [99, 99, 99, 99]},
     uTeal:      {value: new THREE.Color(0x2F7E88)},
     uAmber:     {value: new THREE.Color(0xE08A00)},
     uWarm:      {value: new THREE.Color(0xF7F5F0)},
@@ -263,8 +263,8 @@
   };
 
   var vert = [
-    "uniform float uTime; uniform float uEnergy; uniform vec3 uHit; uniform float uHitAge;",
-    "varying vec3 vN; varying vec3 vW; varying float vDisp;",
+    "uniform float uTime; uniform float uEnergy; uniform vec3 uHits[4]; uniform float uAges[4];",
+    "varying vec3 vN; varying vec3 vW; varying float vDisp; varying float vHit;",
     "vec3 mod289(vec3 x){return x - floor(x*(1.0/289.0))*289.0;}",
     "vec4 mod289(vec4 x){return x - floor(x*(1.0/289.0))*289.0;}",
     "vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}",
@@ -300,9 +300,13 @@
     "  float d = fbm(normal * 1.35 + vec3(t, t*.8, -t*.6));",
     "  float d2 = fbm(normal * 3.4 - vec3(t*.7, t, t*.5));",
     "  float disp = (d * .30 + d2 * .10) * uEnergy;",
-    "  float hd = distance(normal, normalize(uHit));",
-    "  float ripple = sin(hd * 16.0 - uHitAge * 7.0) * exp(-hd * 2.6) * exp(-uHitAge * 1.6) * .16;",
-    "  disp += ripple;",
+    "  float rip = 0.0;",
+    "  for(int i=0;i<4;i++){",
+    "    float hd = distance(normal, normalize(uHits[i]));",
+    "    rip += sin(hd * 14.0 - uAges[i] * 6.0) * exp(-hd * 1.9) * exp(-uAges[i] * 1.05);",
+    "  }",
+    "  disp += rip * .20;",
+    "  vHit = rip;",
     "  pos += normal * disp;",
     "  vDisp = disp;",
     "  vec4 w = modelMatrix * vec4(pos, 1.0);",
@@ -315,7 +319,7 @@
   var frag = [
     "uniform vec3 uTeal; uniform vec3 uAmber; uniform vec3 uWarm; uniform vec3 uLightDir;",
     "uniform float uMix; uniform float uTime;",
-    "varying vec3 vN; varying vec3 vW; varying float vDisp;",
+    "varying vec3 vN; varying vec3 vW; varying float vDisp; varying float vHit;",
     "void main(){",
     "  vec3 V = normalize(cameraPosition - vW);",
     "  vec3 N = normalize(vN);",
@@ -328,6 +332,7 @@
     "  vec3 R = reflect(-uLightDir, N);",
     "  float spec = pow(max(dot(R, V), 0.0), 60.0);",
     "  col += spec * .5 * uWarm;",
+    "  col += clamp(vHit, -1.0, 1.0) * .30 * uWarm;",
     "  col = mix(col, uWarm, .10);",
     "  gl_FragColor = vec4(col, 1.0);",
     "}"
@@ -356,10 +361,10 @@
 
   /* ---------- Scene states: one per section ---------- */
   var STATES = [
-    {cam:[0.0, 0.1, 8.0],  form:[ 1.9, 0.1, 0], scale:1.00, mix:.30, energy:.85, spin:.05},
-    {cam:[0.4, 0.4, 7.2],  form:[-2.3, 0.2, 0], scale:1.08, mix:.55, energy:1.00, spin:.09},
+    {cam:[0.0, 0.1, 8.0],  form:[ 2.2, 0.15, 0], scale:1.00, mix:.30, energy:.85, spin:.05},
+    {cam:[0.4, 0.4, 7.2],  form:[-3.0, 0.3, -0.5], scale:.98, mix:.55, energy:1.00, spin:.09},
     {cam:[-0.4, 0.8, 7.6], form:[ 0.0, 1.3, -1], scale:.92, mix:.45, energy:.80, spin:.07},
-    {cam:[0.0, 0.0, 6.4],  form:[ 0.0, 0.0, 0], scale:1.30, mix:.68, energy:1.10, spin:.11},
+    {cam:[0.0, 0.0, 6.4],  form:[ 0.0, 0.0, 0], scale:1.22, mix:.68, energy:1.10, spin:.11},
     {cam:[0.0, 0.6, 8.6],  form:[ 2.4, 1.9, -1], scale:.72, mix:.35, energy:.65, spin:.04}
   ];
   function stateAt(p){
@@ -373,23 +378,27 @@
 
   /* ---------- Pointer: parallax + touch ripple ---------- */
   var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  var parX = 0, parY = 0, parTX = 0, parTY = 0, lastHit = -10;
-  function onPoint(x, y, isTouch){
+  var parX = 0, parY = 0, parTX = 0, parTY = 0;
+  var spawnTimes = [-99, -99, -99, -99], slot = 0, lastSpawn = -10;
+  function onPoint(x, y){
     ndc.x = (x / window.innerWidth) * 2 - 1;
     ndc.y = -(y / window.innerHeight) * 2 + 1;
     parTX = ndc.x; parTY = ndc.y;
-    if (isTouch){
+    var now = perfNow();
+    if (now - lastSpawn > .10){
       ray.setFromCamera(ndc, camera);
       var hits = ray.intersectObject(form);
       if (hits.length){
-        uniforms.uHit.value.copy(form.worldToLocal(hits[0].point.clone()).normalize());
-        lastHit = perfNow();
+        uniforms.uHits.value[slot].copy(form.worldToLocal(hits[0].point.clone()).normalize());
+        spawnTimes[slot] = now;
+        slot = (slot + 1) % 4;
+        lastSpawn = now;
       }
     }
   }
-  window.addEventListener("pointermove", function(e){ onPoint(e.clientX, e.clientY, false); }, {passive: true});
-  window.addEventListener("touchstart", function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY, true); }, {passive: true});
-  window.addEventListener("touchmove",  function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY, true); }, {passive: true});
+  window.addEventListener("pointermove", function(e){ onPoint(e.clientX, e.clientY); }, {passive: true});
+  window.addEventListener("touchstart", function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY); }, {passive: true});
+  window.addEventListener("touchmove",  function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY); }, {passive: true});
 
   /* ---------- Depth parallax on content layers ---------- */
   var layers = Array.prototype.slice.call(document.querySelectorAll(".depth-slow"));
@@ -407,7 +416,7 @@
     var w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
-    if (w < 700){ STATES[0].form[0] = 1.1; STATES[1].form[0] = -1.2; STATES[4].form[0] = 1.2; }
+    if (w < 700){ STATES[0].form[0] = 1.05; STATES[0].form[1] = 1.05; STATES[1].form[0] = -1.4; STATES[1].form[1] = 1.2; STATES[4].form[0] = 1.2; }
   }
   window.addEventListener("resize", resize);
   resize();
@@ -435,7 +444,7 @@
     uniforms.uTime.value = t;
     uniforms.uMix.value = s.mix;
     uniforms.uEnergy.value = s.energy;
-    uniforms.uHitAge.value = t - lastHit;
+    for (var hi = 0; hi < 4; hi++) uniforms.uAges.value[hi] = t - spawnTimes[hi];
 
     motes.rotation.y = t * .012;
     motes.position.y = Math.sin(t * .18) * .18;
