@@ -18,7 +18,7 @@
   html,body{background:var(--bg)}
   body{
     font-family:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-    color:var(--slate); overflow-x:hidden;
+    color:var(--slate); overflow-x:hidden; -webkit-user-select:none; user-select:none;
     -webkit-font-smoothing:antialiased;
   }
   #gl{position:fixed; inset:0; width:100%; height:100%; display:block; z-index:0; touch-action:pan-y}
@@ -256,6 +256,8 @@
     uEnergy:    {value: .85},                                 // deformation energy, driven by scroll state
     uHits:      {value: [new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10)]},
     uAges:      {value: [99, 99, 99, 99]},
+    uDentDir:   {value: new THREE.Vector3(0, 0, 1)},
+    uDent:      {value: 0},
     uTeal:      {value: new THREE.Color(0x2F7E88)},
     uAmber:     {value: new THREE.Color(0xE08A00)},
     uWarm:      {value: new THREE.Color(0xF7F5F0)},
@@ -263,7 +265,7 @@
   };
 
   var vert = [
-    "uniform float uTime; uniform float uEnergy; uniform vec3 uHits[4]; uniform float uAges[4];",
+    "uniform float uTime; uniform float uEnergy; uniform vec3 uHits[4]; uniform float uAges[4]; uniform vec3 uDentDir; uniform float uDent;",
     "varying vec3 vN; varying vec3 vW; varying float vDisp; varying float vHit;",
     "vec3 mod289(vec3 x){return x - floor(x*(1.0/289.0))*289.0;}",
     "vec4 mod289(vec4 x){return x - floor(x*(1.0/289.0))*289.0;}",
@@ -307,6 +309,11 @@
     "  }",
     "  disp += rip * .20;",
     "  vHit = rip;",
+    "  float dh = distance(normal, uDentDir);",
+    "  float infl = exp(-dh * dh * 3.5);",
+    "  float ring = exp(-pow(dh - .55, 2.0) * 8.0);",
+    "  disp += uDent * (ring * .14 - infl * .34);",
+    "  vHit += uDent * infl;",
     "  pos += normal * disp;",
     "  vDisp = disp;",
     "  vec4 w = modelMatrix * vec4(pos, 1.0);",
@@ -332,7 +339,7 @@
     "  vec3 R = reflect(-uLightDir, N);",
     "  float spec = pow(max(dot(R, V), 0.0), 60.0);",
     "  col += spec * .5 * uWarm;",
-    "  col += clamp(vHit, -1.0, 1.0) * .30 * uWarm;",
+    "  col += clamp(vHit, -1.0, 1.0) * .55 * uWarm;",
     "  col = mix(col, uWarm, .10);",
     "  gl_FragColor = vec4(col, 1.0);",
     "}"
@@ -380,16 +387,21 @@
   var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   var parX = 0, parY = 0, parTX = 0, parTY = 0;
   var spawnTimes = [-99, -99, -99, -99], slot = 0, lastSpawn = -10;
+  var dentTarget = 0, dentSmooth = 0, lastHitT = -10;
   function onPoint(x, y){
     ndc.x = (x / window.innerWidth) * 2 - 1;
     ndc.y = -(y / window.innerHeight) * 2 + 1;
     parTX = ndc.x; parTY = ndc.y;
     var now = perfNow();
-    if (now - lastSpawn > .10){
-      ray.setFromCamera(ndc, camera);
-      var hits = ray.intersectObject(form);
-      if (hits.length){
-        uniforms.uHits.value[slot].copy(form.worldToLocal(hits[0].point.clone()).normalize());
+    ray.setFromCamera(ndc, camera);
+    var hits = ray.intersectObject(form);
+    if (hits.length){
+      var dir = form.worldToLocal(hits[0].point.clone()).normalize();
+      uniforms.uDentDir.value.copy(dir);
+      dentTarget = 1;
+      lastHitT = now;
+      if (now - lastSpawn > .12){
+        uniforms.uHits.value[slot].copy(dir);
         spawnTimes[slot] = now;
         slot = (slot + 1) % 4;
         lastSpawn = now;
@@ -445,6 +457,9 @@
     uniforms.uMix.value = s.mix;
     uniforms.uEnergy.value = s.energy;
     for (var hi = 0; hi < 4; hi++) uniforms.uAges.value[hi] = t - spawnTimes[hi];
+    if (t - lastHitT > .45) dentTarget = 0;
+    dentSmooth += (dentTarget - dentSmooth) * .12;
+    uniforms.uDent.value = dentSmooth;
 
     motes.rotation.y = t * .012;
     motes.position.y = Math.sin(t * .18) * .18;
