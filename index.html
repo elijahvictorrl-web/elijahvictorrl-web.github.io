@@ -343,7 +343,7 @@
     new THREE.SphereGeometry(1.55, 110, 110),
     new THREE.ShaderMaterial({uniforms: uniforms, vertexShader: vert, fragmentShader: frag})
   );
-  scene.add(form);
+  /* Bubble removed 2026-10-28 on Victor's direct order: the form is no longer added to the scene. */
 
   /* ---------- Drifting depth motes ---------- */
   var moteCount = window.innerWidth < 700 ? 60 : 130;
