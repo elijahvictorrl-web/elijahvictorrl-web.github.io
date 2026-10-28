@@ -254,10 +254,9 @@
     uTime:      {value: 0},
     uMix:       {value: 0},                                   // palette balance, driven by scroll state
     uEnergy:    {value: .85},                                 // deformation energy, driven by scroll state
-    uHits:      {value: [new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10), new THREE.Vector3(0,0,10)]},
-    uAges:      {value: [99, 99, 99, 99]},
-    uDentDir:   {value: new THREE.Vector3(0, 0, 1)},
-    uDent:      {value: 0},
+    uPointer:   {value: new THREE.Vector2(0, 0)},
+    uPress:     {value: 0},
+    uAspect:    {value: 1},
     uTeal:      {value: new THREE.Color(0x2F7E88)},
     uAmber:     {value: new THREE.Color(0xE08A00)},
     uWarm:      {value: new THREE.Color(0xF7F5F0)},
@@ -265,7 +264,7 @@
   };
 
   var vert = [
-    "uniform float uTime; uniform float uEnergy; uniform vec3 uHits[4]; uniform float uAges[4]; uniform vec3 uDentDir; uniform float uDent;",
+    "uniform float uTime; uniform float uEnergy; uniform vec2 uPointer; uniform float uPress; uniform float uAspect;",
     "varying vec3 vN; varying vec3 vW; varying float vDisp; varying float vHit;",
     "vec3 mod289(vec3 x){return x - floor(x*(1.0/289.0))*289.0;}",
     "vec4 mod289(vec4 x){return x - floor(x*(1.0/289.0))*289.0;}",
@@ -302,24 +301,19 @@
     "  float d = fbm(normal * 1.35 + vec3(t, t*.8, -t*.6));",
     "  float d2 = fbm(normal * 3.4 - vec3(t*.7, t, t*.5));",
     "  float disp = (d * .30 + d2 * .10) * uEnergy;",
-    "  float rip = 0.0;",
-    "  for(int i=0;i<4;i++){",
-    "    float hd = distance(normal, normalize(uHits[i]));",
-    "    rip += sin(hd * 14.0 - uAges[i] * 6.0) * exp(-hd * 1.9) * exp(-uAges[i] * 1.05);",
-    "  }",
-    "  disp += rip * .20;",
-    "  vHit = rip;",
-    "  float dh = distance(normal, uDentDir);",
-    "  float infl = exp(-dh * dh * 3.5);",
-    "  float ring = exp(-pow(dh - .55, 2.0) * 8.0);",
-    "  disp += uDent * (ring * .14 - infl * .34);",
-    "  vHit += uDent * infl;",
     "  pos += normal * disp;",
     "  vDisp = disp;",
     "  vec4 w = modelMatrix * vec4(pos, 1.0);",
     "  vW = w.xyz;",
     "  vN = normalize(mat3(modelMatrix) * normal);",
-    "  gl_Position = projectionMatrix * viewMatrix * w;",
+    "  vec4 mv = viewMatrix * w;",
+    "  vec4 clip = projectionMatrix * mv;",
+    "  vec2 ndcXY = clip.xy / clip.w;",
+    "  vec2 dp = (ndcXY - uPointer) * vec2(uAspect, 1.0);",
+    "  float dent = exp(-dot(dp, dp) * 9.0) * uPress;",
+    "  mv.z += dent * .55;",
+    "  vHit = dent * 1.2;",
+    "  gl_Position = projectionMatrix * mv;",
     "}"
   ].join("\n");
 
@@ -384,31 +378,18 @@
   }
 
   /* ---------- Pointer: parallax + touch ripple ---------- */
-  var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  var ndc = new THREE.Vector2();
   var parX = 0, parY = 0, parTX = 0, parTY = 0;
-  var spawnTimes = [-99, -99, -99, -99], slot = 0, lastSpawn = -10;
-  var dentTarget = 0, dentSmooth = 0, lastHitT = -10;
+  var ptrX = 0, ptrY = 0, ptrTX = 0, ptrTY = 0, pressSmooth = 0, lastEventT = -10;
   function onPoint(x, y){
     ndc.x = (x / window.innerWidth) * 2 - 1;
     ndc.y = -(y / window.innerHeight) * 2 + 1;
     parTX = ndc.x; parTY = ndc.y;
-    var now = perfNow();
-    ray.setFromCamera(ndc, camera);
-    var hits = ray.intersectObject(form);
-    if (hits.length){
-      var dir = form.worldToLocal(hits[0].point.clone()).normalize();
-      uniforms.uDentDir.value.copy(dir);
-      dentTarget = 1;
-      lastHitT = now;
-      if (now - lastSpawn > .12){
-        uniforms.uHits.value[slot].copy(dir);
-        spawnTimes[slot] = now;
-        slot = (slot + 1) % 4;
-        lastSpawn = now;
-      }
-    }
+    ptrTX = ndc.x; ptrTY = ndc.y;
+    lastEventT = perfNow();
   }
   window.addEventListener("pointermove", function(e){ onPoint(e.clientX, e.clientY); }, {passive: true});
+  window.addEventListener("pointerdown", function(e){ onPoint(e.clientX, e.clientY); }, {passive: true});
   window.addEventListener("touchstart", function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY); }, {passive: true});
   window.addEventListener("touchmove",  function(e){ if (e.touches[0]) onPoint(e.touches[0].clientX, e.touches[0].clientY); }, {passive: true});
 
@@ -428,6 +409,7 @@
     var w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
+    uniforms.uAspect.value = w / h;
     if (w < 700){ STATES[0].form[0] = 1.05; STATES[0].form[1] = 1.05; STATES[1].form[0] = -1.4; STATES[1].form[1] = 1.2; STATES[4].form[0] = 1.2; }
   }
   window.addEventListener("resize", resize);
@@ -456,10 +438,10 @@
     uniforms.uTime.value = t;
     uniforms.uMix.value = s.mix;
     uniforms.uEnergy.value = s.energy;
-    for (var hi = 0; hi < 4; hi++) uniforms.uAges.value[hi] = t - spawnTimes[hi];
-    if (t - lastHitT > .45) dentTarget = 0;
-    dentSmooth += (dentTarget - dentSmooth) * .12;
-    uniforms.uDent.value = dentSmooth;
+    ptrX += (ptrTX - ptrX) * .30; ptrY += (ptrTY - ptrY) * .30;
+    uniforms.uPointer.value.set(ptrX, ptrY);
+    pressSmooth += (((t - lastEventT) < 2.5 ? 1 : 0) - pressSmooth) * .07;
+    uniforms.uPress.value = pressSmooth;
 
     motes.rotation.y = t * .012;
     motes.position.y = Math.sin(t * .18) * .18;
